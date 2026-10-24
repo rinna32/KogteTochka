@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from bot.config import settings
 
@@ -18,6 +18,23 @@ def window_button(start_at: datetime, label: str | None) -> str:
     """«сб 24.10 · 9:00 к/н» — текст кнопки."""
     dt = local(start_at)
     text = f"{WEEKDAYS_SHORT[dt.weekday()]} {dt:%d.%m} · {dt.hour}:{dt:%M}"
+    return f"{text} {label}" if label else text
+
+
+def day_button(day: date) -> str:
+    """«вс 25 окт»"""
+    return f"{WEEKDAYS_SHORT[day.weekday()]} {day.day} {MONTHS_GEN[day.month - 1][:3]}"
+
+
+def day_full(day: date) -> str:
+    """«Воскресенье, 25 октября»"""
+    return f"{WEEKDAYS_FULL[day.weekday()].capitalize()}, {day.day} {MONTHS_GEN[day.month - 1]}"
+
+
+def time_button(start_at: datetime, label: str | None) -> str:
+    """«9:00 к/н»"""
+    dt = local(start_at)
+    text = f"{dt.hour}:{dt:%M}"
     return f"{text} {label}" if label else text
 
 

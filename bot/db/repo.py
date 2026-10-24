@@ -8,10 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bot.db.models import Booking, Setting, Window
 from bot.services.schedule_parser import ParsedWindow
 
-# Telegram показывает не больше 100 кнопок в одном сообщении
-MAX_WINDOWS_SHOWN = 90
-
-
 class WindowUnavailable(Exception):
     """Окно уже заняли, удалили или его время прошло."""
 
@@ -38,7 +34,6 @@ async def free_windows(session: AsyncSession, now: datetime) -> list[Window]:
         select(Window)
         .where(Window.start_at > now, ~_is_booked())
         .order_by(Window.start_at)
-        .limit(MAX_WINDOWS_SHOWN)
     )
     return list(await session.scalars(stmt))
 

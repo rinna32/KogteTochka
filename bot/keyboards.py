@@ -1,15 +1,24 @@
+from datetime import date
+
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.db.models import Window
-from bot.services.fmt import local, window_button
+from bot.services.fmt import day_button, time_button
 
-WINDOWS_PER_ROW = 2
+DAYS_PER_ROW = 2
+# Telegram показывает не больше 100 кнопок в одном сообщении
+MAX_DAYS = 60
+TIMES_PER_ROW = 3
 
 
 class Menu(CallbackData, prefix="menu"):
     action: str  # main | book | price
+
+
+class PickDay(CallbackData, prefix="day"):
+    day: str  # ISO-дата, 2026-10-25
 
 
 class PickWindow(CallbackData, prefix="win"):
@@ -36,20 +45,23 @@ def back_to_menu() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def windows_menu(windows: list[Window]) -> InlineKeyboardMarkup:
-    """Свободные окна; окна одного дня — в своих рядах."""
-    rows: list[list[InlineKeyboardButton]] = []
-    row_day = None
+def days_menu(days: list[date]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    for d in days[:MAX_DAYS]:
+        kb.button(text=day_button(d), callback_data=PickDay(day=d.isoformat()))
+    kb.adjust(DAYS_PER_ROW)
+    kb.row(*back_button(Menu(action="main")))
+    return kb.as_markup()
+
+
+def times_menu(windows: list[Window]) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
     for w in windows:
-        day = local(w.start_at).date()
-        if not rows or day != row_day or len(rows[-1]) == WINDOWS_PER_ROW:
-            rows.append([])
-        row_day = day
-        rows[-1].append(
-            InlineKeyboardButton(
-                text=window_button(w.start_at, w.label),
-                callback_data=PickWindow(id=w.id).pack(),
-            )
-        )
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=Menu(action="main").pack())])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+        kb.button(text=time_button(w.start_at, w.label), callback_data=PickWindow(id=w.id))
+    kb.adjust(TIMES_PER_ROW)
+    kb.row(*back_button(Menu(action="book")))
+    return kb.as_markup()
+
+
+def back_button(target: CallbackData) -> list[InlineKeyboardButton]:
+    return [InlineKeyboardButton(text="⬅️ Назад", callback_data=target.pack())]
