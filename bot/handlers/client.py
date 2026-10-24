@@ -39,8 +39,15 @@ class Screen(NamedTuple):
     day: date | None = None
 
 
+LETS_BOOK_TEXT = "Давай запишемся 👇"
+
+
+def hello(name: str) -> str:
+    return f"Привет, {escape(name)}! 💅"
+
+
 def greeting(name: str) -> str:
-    return f"Привет, {escape(name)}! 💅\n\nДавай запишемся 👇"
+    return f"{hello(name)}\n\n{LETS_BOOK_TEXT}"
 
 
 def contacts_lines() -> list[str]:
@@ -146,6 +153,14 @@ async def booked_window(tg_id: int) -> Window | None:
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
+    live.unregister(message.chat.id)
+    # одно сообщение не может нести и нижнюю кнопку, и кнопки под текстом — поэтому два
+    await message.answer(hello(message.from_user.first_name), reply_markup=kb.start_keyboard())
+    await message.answer(LETS_BOOK_TEXT, reply_markup=kb.main_menu())
+
+
+@router.message(F.text == kb.START_TEXT)
+async def on_start_button(message: Message) -> None:
     live.unregister(message.chat.id)
     await message.answer(greeting(message.from_user.first_name), reply_markup=kb.main_menu())
 
