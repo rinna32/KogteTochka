@@ -3,7 +3,9 @@ from html import escape
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
+from aiogram.types import InlineKeyboardMarkup
 
+from bot import keyboards as kb
 from bot.config import settings
 from bot.db.models import Booking
 from bot.services.fmt import window_full
@@ -24,12 +26,12 @@ async def notify_master_new_booking(bot: Bot, booking: Booking) -> None:
         f"🗓 {window_full(booking.window.start_at, booking.window.label)}\n"
         f"👤 {client_link(booking)}"
     )
-    await send_to_master(bot, text)
+    await send_to_master(bot, text, kb.open_booking(booking.id))
 
 
-async def send_to_master(bot: Bot, text: str) -> None:
+async def send_to_master(bot: Bot, text: str, markup: InlineKeyboardMarkup | None = None) -> None:
     try:
-        await bot.send_message(settings.master_id, text)
+        await bot.send_message(settings.master_id, text, reply_markup=markup)
     except TelegramAPIError as e:
         # Чаще всего — мастер ещё не нажала /start в боте
         log.error("Не удалось отправить мастеру: %s\n%s", e, text)

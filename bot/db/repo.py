@@ -4,9 +4,11 @@ from sqlalchemy import exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import contains_eager, selectinload
 
 from bot.db.models import Booking, Client, Setting, Window
 from bot.services.schedule_parser import ParsedWindow
+
 
 class WindowUnavailable(Exception):
     """Окно уже заняли, удалили или его время прошло."""
@@ -47,15 +49,20 @@ async def free_windows(session: AsyncSession, now: datetime) -> list[Window]:
     return list(await session.scalars(stmt))
 
 
-async def upcoming_windows(session: AsyncSession, now: datetime) -> list[tuple[Window, Booking | None]]:
-    """Все будущие окна с активной записью, если она есть — для мастера."""
+async def upcoming_bookings(session: AsyncSession, now: datetime) -> list[Booking]:
+    """Будущие активные записи с окнами — для мастера."""
     stmt = (
-        select(Window, Booking)
-        .outerjoin(Booking, (Booking.window_id == Window.id) & (Booking.status == "active"))
-        .where(Window.start_at > now)
+        select(Booking)
+        .join(Booking.window)
+        .options(contains_eager(Booking.window))
+        .where(Booking.status == "active", Window.start_at > now)
         .order_by(Window.start_at)
     )
-    return [(w, b) for w, b in (await session.execute(stmt)).all()]
+    return list(await session.scalars(stmt))
+
+
+async def get_booking(session: AsyncSession, booking_id: int) -> Booking | None:
+    return await session.get(Booking, booking_id, options=[selectinload(Booking.window)])
 
 
 async def active_booking_window(session: AsyncSession, tg_id: int, now: datetime) -> Window | None:
@@ -126,18 +133,18 @@ async def set_setting(session: AsyncSession, key: str, value: str) -> None:
 
 
 
-async def cancel_window_booking(session: AsyncSession, window_id: int) -> Booking | None:
-    """Отменяет активную запись на окне. Возвращает её (с окном) или None, если записи нет."""
+async def cancel_booking(session: AsyncSession, booking_id: int) -> Booking | None:
+    """Отменяет активную запись. Возвращает её (с окном) или None, если она уже не активна."""
     stmt = (
         select(Booking)
-        .where(Booking.window_id == window_id, Booking.status == "active")
+        .where(Booking.id == booking_id, Booking.status == "active")
         .with_for_update()
     )
     booking = await session.scalar(stmt)
     if booking is None:
         return None
     booking.status = "cancelled"
-    booking.window = await session.get(Window, window_id)
+    booking.window = await session.get(Window, booking.window_id)
     return booking
 
 

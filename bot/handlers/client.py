@@ -152,7 +152,8 @@ async def cmd_start(message: Message) -> None:
 
 @router.callback_query(kb.Menu.filter(F.action == "main"))
 async def on_main(call: CallbackQuery) -> None:
-    await show_static(call, greeting(call.from_user.first_name), kb.main_menu())
+    is_staff = call.from_user.id in settings.staff_ids
+    await show_static(call, greeting(call.from_user.first_name), kb.main_menu(is_staff))
     await call.answer()
 
 
