@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     bot_token: str
-    master_id: int
+    master_id: int = 0
     admin_id: int = 0
     database_url: str
     tz: str = "Europe/Moscow"
@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     master_contact: str = ""
     admin_contact: str = ""
 
-    @field_validator("admin_id", mode="before")
+    @field_validator("master_id", "admin_id", mode="before")
     @classmethod
-    def empty_admin_id(cls, value: object) -> object:
-        # пустой ADMIN_ID в .env — админа нет
+    def empty_id(cls, value: object) -> object:
+        # пустой ID в .env — такого человека нет (например, на время теста глазами клиентки)
         return 0 if value == "" else value
 
     @property

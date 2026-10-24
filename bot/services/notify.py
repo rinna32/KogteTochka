@@ -30,6 +30,9 @@ async def notify_master_new_booking(bot: Bot, booking: Booking) -> None:
 
 
 async def send_to_master(bot: Bot, text: str, markup: InlineKeyboardMarkup | None = None) -> None:
+    if not settings.master_id:
+        log.warning("MASTER_ID не задан — уведомление никому не отправлено:\n%s", text)
+        return
     try:
         await bot.send_message(settings.master_id, text, reply_markup=markup)
     except TelegramAPIError as e:
