@@ -1,11 +1,11 @@
 from datetime import datetime
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from bot.db.models import Booking, Setting, Window
+from bot.db.models import Booking, Client, Setting, Window
 from bot.services.schedule_parser import ParsedWindow
 
 class WindowUnavailable(Exception):
@@ -124,3 +124,38 @@ async def set_setting(session: AsyncSession, key: str, value: str) -> None:
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": value})
     await session.execute(stmt)
 
+
+
+async def cancel_window_booking(session: AsyncSession, window_id: int) -> Booking | None:
+    """Отменяет активную запись на окне. Возвращает её (с окном) или None, если записи нет."""
+    stmt = (
+        select(Booking)
+        .where(Booking.window_id == window_id, Booking.status == "active")
+        .with_for_update()
+    )
+    booking = await session.scalar(stmt)
+    if booking is None:
+        return None
+    booking.status = "cancelled"
+    booking.window = await session.get(Window, window_id)
+    return booking
+
+
+async def upsert_client(session: AsyncSession, tg_id: int, name: str, username: str | None) -> None:
+    stmt = insert(Client).values(tg_id=tg_id, name=name, username=username)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["tg_id"],
+        set_={"name": name, "username": username, "is_blocked": False},
+    )
+    await session.execute(stmt)
+
+
+async def broadcast_recipients(session: AsyncSession, exclude: set[int]) -> list[int]:
+    stmt = select(Client.tg_id).where(~Client.is_blocked)
+    if exclude:
+        stmt = stmt.where(Client.tg_id.not_in(exclude))
+    return list(await session.scalars(stmt))
+
+
+async def mark_blocked(session: AsyncSession, tg_id: int) -> None:
+    await session.execute(update(Client).where(Client.tg_id == tg_id).values(is_blocked=True))

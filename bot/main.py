@@ -8,6 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
 from bot.handlers import client, master
+from bot.middlewares import RememberClient
 
 
 async def main() -> None:
@@ -17,6 +18,9 @@ async def main() -> None:
     )
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+    remember = RememberClient()
+    dp.message.outer_middleware(remember)
+    dp.callback_query.outer_middleware(remember)
     # мастер первым: её текст — это расписание; /start и кнопки обрабатывает client
     dp.include_router(master.router)
     dp.include_router(client.router)

@@ -119,6 +119,19 @@ class BookingPhoto(Base):
     booking: Mapped[Booking] = relationship(back_populates="photos")
 
 
+class Client(Base):
+    """Все, кто писал боту, — получатели рассылки «Горит окошко»."""
+
+    __tablename__ = "clients"
+
+    tg_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    name: Mapped[str] = mapped_column(String(100))
+    username: Mapped[str | None] = mapped_column(String(64))
+    # заблокировала бота — не шлём, пока снова не напишет
+    is_blocked: Mapped[bool] = mapped_column(default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class Setting(Base):
     __tablename__ = "settings"
 

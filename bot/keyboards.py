@@ -45,6 +45,18 @@ def back_to_menu() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
+def hot_window(window_id: int) -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📅 Записаться на это окно", callback_data=PickWindow(id=window_id))
+    return kb.as_markup()
+
+
+def book_again() -> InlineKeyboardMarkup:
+    kb = InlineKeyboardBuilder()
+    kb.button(text="📅 Записаться снова", callback_data=Menu(action="book"))
+    return kb.as_markup()
+
+
 def days_menu(days: list[date]) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for d in days[:MAX_DAYS]:
