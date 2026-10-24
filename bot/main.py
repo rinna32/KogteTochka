@@ -5,7 +5,6 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand
 
 from bot.config import settings
 from bot.handlers import client, master
@@ -25,9 +24,6 @@ async def main() -> None:
     # мастер первым: её текст — это расписание; /start и кнопки обрабатывает client
     dp.include_router(master.router)
     dp.include_router(client.router)
-
-    # кнопка «Меню» слева от поля ввода
-    await bot.set_my_commands([BotCommand(command="start", description="Начать / записаться")])
 
     me = await bot.get_me()
     logging.info("Bot started: @%s", me.username)

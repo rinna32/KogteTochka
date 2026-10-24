@@ -19,14 +19,7 @@ from bot.config import settings
 from bot.db import repo
 from bot.db.engine import session_factory
 from bot.db.models import Booking
-from bot.handlers.client import (
-    PRICE_KEY,
-    greeting,
-    hello,
-    refresh_open_screens,
-    show,
-    show_static,
-)
+from bot.handlers.client import PRICE_KEY, greeting, refresh_open_screens, show, show_static
 from bot.services.broadcast import broadcast_hot_window
 from bot.services.fmt import day_full, local, window_full
 from bot.services.notify import client_link
@@ -40,7 +33,7 @@ router.callback_query.filter(F.from_user.id.in_(settings.staff_ids))
 # ссылки на фоновые рассылки, чтобы их не собрал сборщик мусора
 _background: set[asyncio.Task] = set()
 
-MASTER_MENU_TEXT = "Это меню мастера 👇"
+MENU_TEXT = "Привет, {name}! 💅\n\nЭто меню мастера 👇"
 ADD_TEXT = (
     "➕ <b>Как добавить окна</b>\n\n"
     "Просто пришли сюда расписание одним сообщением, как обычно:\n\n"
@@ -51,10 +44,6 @@ ADD_TEXT = (
 
 class MasterStates(StatesGroup):
     waiting_price = State()
-
-
-def menu_text(name: str) -> str:
-    return f"{hello(name)}\n\n{MASTER_MENU_TEXT}"
 
 
 def now() -> datetime:
@@ -74,25 +63,16 @@ def booking_text(booking: Booking) -> str:
 # --- главное меню ---
 
 @router.message(CommandStart())
+@router.message(Command("help"))
 async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
-    # одно сообщение не может нести и нижнюю кнопку, и кнопки под текстом — поэтому два
-    await message.answer(hello(message.from_user.first_name), reply_markup=kb.start_keyboard())
-    await message.answer(MASTER_MENU_TEXT, reply_markup=kb.master_menu())
-
-
-# стоит раньше add_schedule: иначе текст кнопки разбирался бы как расписание
-@router.message(F.text == kb.START_TEXT)
-@router.message(Command("help"))
-async def on_start_button(message: Message, state: FSMContext) -> None:
-    await state.clear()
-    await message.answer(menu_text(message.from_user.first_name), reply_markup=kb.master_menu())
+    await message.answer(MENU_TEXT.format(name=escape(message.from_user.first_name)), reply_markup=kb.master_menu())
 
 
 @router.callback_query(kb.Master.filter(F.action == "menu"))
 async def on_menu(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await show_static(call, menu_text(call.from_user.first_name), kb.master_menu())
+    await show_static(call, MENU_TEXT.format(name=escape(call.from_user.first_name)), kb.master_menu())
     await call.answer()
 
 

@@ -1,12 +1,7 @@
 from datetime import date
 
 from aiogram.filters.callback_data import CallbackData
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
-)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bot.db.models import Booking, Window
@@ -36,18 +31,6 @@ class Master(CallbackData, prefix="m"):
     action: str
     id: int = 0
     day: str = ""
-
-
-# Постоянная кнопка внизу экрана — чтобы не писать /start руками
-START_TEXT = "💅 Начать"
-
-
-def start_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=START_TEXT)]],
-        resize_keyboard=True,
-        is_persistent=True,
-    )
 
 
 def main_menu(is_staff: bool = False) -> InlineKeyboardMarkup:
