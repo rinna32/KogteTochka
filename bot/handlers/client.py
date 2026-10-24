@@ -8,7 +8,7 @@ from typing import NamedTuple
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import CommandStart
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message, User
 
 from bot import keyboards as kb
 from bot.config import settings
@@ -39,7 +39,16 @@ class Screen(NamedTuple):
     day: date | None = None
 
 
-def greeting(name: str) -> str:
+ADMIN_GREETING = "Кобыла, время точить копыта! 🐴💅"
+
+
+def greeting(user: User) -> str:
+    if settings.admin_id and user.id == settings.admin_id:
+        return ADMIN_GREETING
+    return client_greeting(user.first_name)
+
+
+def client_greeting(name: str) -> str:
     return f"Привет, {escape(name)}! 💅\n\nДавай запишемся 👇"
 
 
@@ -147,13 +156,13 @@ async def booked_window(tg_id: int) -> Window | None:
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
     live.unregister(message.chat.id)
-    await message.answer(greeting(message.from_user.first_name), reply_markup=kb.main_menu())
+    await message.answer(greeting(message.from_user), reply_markup=kb.main_menu())
 
 
 @router.callback_query(kb.Menu.filter(F.action == "main"))
 async def on_main(call: CallbackQuery) -> None:
     is_staff = call.from_user.id in settings.staff_ids
-    await show_static(call, greeting(call.from_user.first_name), kb.main_menu(is_staff))
+    await show_static(call, greeting(call.from_user), kb.main_menu(is_staff))
     await call.answer()
 
 

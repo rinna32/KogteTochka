@@ -78,7 +78,7 @@ async def on_menu(call: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(kb.Master.filter(F.action == "client"))
 async def on_client_view(call: CallbackQuery) -> None:
-    await show_static(call, greeting(call.from_user.first_name), kb.main_menu(is_staff=True))
+    await show_static(call, greeting(call.from_user), kb.main_menu(is_staff=True))
     await call.answer()
 
 
