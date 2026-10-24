@@ -1,8 +1,12 @@
+import asyncio
+import logging
 from datetime import date, datetime
 from html import escape
 from pathlib import Path
+from typing import NamedTuple
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardMarkup, Message
 
@@ -11,9 +15,11 @@ from bot.config import settings
 from bot.db import repo
 from bot.db.engine import session_factory
 from bot.db.models import Window
+from bot.services import live
 from bot.services.fmt import day_full, local, window_full
 from bot.services.notify import notify_master_new_booking
 
+log = logging.getLogger(__name__)
 router = Router(name="client")
 
 PRICE_KEY = "price_file_id"
@@ -26,30 +32,66 @@ NO_WINDOWS_TEXT = "Свободных окон пока нет 😔\nЗагля�
 WINDOW_TAKEN_TEXT = "Ой, это окно только что заняли 🙈"
 
 
+class Screen(NamedTuple):
+    text: str
+    markup: InlineKeyboardMarkup
+    # что показано: None — список дней (или «окон нет»), иначе — время этого дня
+    day: date | None = None
+
+
 def greeting(name: str) -> str:
     return f"Привет, {escape(name)}! 💅\n\nДавай запишемся 👇"
 
 
-def thanks_text(start_at: datetime, label: str | None) -> str:
-    lines = ["Спасибо за запись! 💖", "", f"🗓 {window_full(start_at, label)}"]
+def contacts_lines() -> list[str]:
+    lines = []
     if settings.master_contact:
         lines += ["", f"Если нужно что-то уточнить, пиши мастеру: {settings.master_contact}"]
     if settings.admin_contact:
         lines += [f"Если бот сработал с ошибкой, напиши администратору: {settings.admin_contact}"]
-    return "\n".join(lines)
+    return lines
+
+
+def thanks_text(start_at: datetime, label: str | None) -> str:
+    return "\n".join(
+        ["Спасибо за запись! 💖", "", f"🗓 {window_full(start_at, label)}", *contacts_lines()]
+    )
+
+
+def already_booked_text(start_at: datetime, label: str | None) -> str:
+    return "\n".join(
+        [
+            "У тебя уже есть запись 💅",
+            "",
+            f"🗓 {window_full(start_at, label)}",
+            "",
+            "Записаться можно только на одно окно. Если нужно перенести или отменить — напиши мастеру.",
+            *contacts_lines(),
+        ]
+    )
 
 
 def now() -> datetime:
     return datetime.now(settings.zone)
 
 
-async def show(call: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
+async def show(call: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> Message:
     """Заменить текущий экран. Сообщение с фото в текстовое не превратить — шлём новое."""
     if call.message.photo:
         await call.message.delete()
-        await call.message.answer(text, reply_markup=markup)
-    else:
-        await call.message.edit_text(text, reply_markup=markup)
+        return await call.message.answer(text, reply_markup=markup)
+    return await call.message.edit_text(text, reply_markup=markup)
+
+
+async def show_live(call: CallbackQuery, screen: Screen) -> None:
+    """Показать список окон и запомнить экран, чтобы обновлять его при изменениях."""
+    message = await show(call, screen.text, screen.markup)
+    live.register(call.message.chat.id, message.message_id, screen.day)
+
+
+async def show_static(call: CallbackQuery, text: str, markup: InlineKeyboardMarkup) -> None:
+    live.unregister(call.message.chat.id)
+    await show(call, text, markup)
 
 
 async def load_free_windows() -> list[Window]:
@@ -57,50 +99,81 @@ async def load_free_windows() -> list[Window]:
         return await repo.free_windows(session, now())
 
 
-async def days_screen(prefix: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
+def with_prefix(prefix: str | None, text: str) -> str:
+    return f"{prefix}\n\n{text}" if prefix else text
+
+
+async def days_screen(prefix: str | None = None) -> Screen:
     windows = await load_free_windows()
     if not windows:
-        text = f"{prefix}\n\n{NO_WINDOWS_TEXT}" if prefix else NO_WINDOWS_TEXT
-        return text, kb.back_to_menu()
+        return Screen(with_prefix(prefix, NO_WINDOWS_TEXT), kb.back_to_menu())
     days = sorted({local(w.start_at).date() for w in windows})
-    text = f"{prefix}\n\n{DAYS_TEXT}" if prefix else DAYS_TEXT
-    return text, kb.days_menu(days)
+    return Screen(with_prefix(prefix, DAYS_TEXT), kb.days_menu(days))
 
 
-async def times_screen(day: date, prefix: str | None = None) -> tuple[str, InlineKeyboardMarkup]:
+async def times_screen(day: date, prefix: str | None = None) -> Screen:
     windows = [w for w in await load_free_windows() if local(w.start_at).date() == day]
     if not windows:
         # на этот день всё разобрали — возвращаем к выбору дня
         return await days_screen(prefix or "На этот день свободных окон уже нет 😔")
     text = TIMES_TEXT.format(day=day_full(day))
-    return (f"{prefix}\n\n{text}" if prefix else text), kb.times_menu(windows)
+    return Screen(with_prefix(prefix, text), kb.times_menu(windows), day)
+
+
+async def refresh_open_screens(bot: Bot, exclude_chat_id: int | None = None) -> None:
+    """Перерисовать открытые списки окон у всех, кто их сейчас смотрит."""
+    for chat_id, opened in live.active(exclude_chat_id):
+        screen = await (times_screen(opened.day) if opened.day else days_screen())
+        try:
+            await bot.edit_message_text(
+                screen.text, chat_id=chat_id, message_id=opened.message_id, reply_markup=screen.markup
+            )
+        except TelegramAPIError as e:
+            # «message is not modified» — экран и так актуален; остальное — сообщение удалено и т.п.
+            if "not modified" not in str(e):
+                log.info("Не удалось обновить экран в чате %s: %s", chat_id, e)
+                live.unregister(chat_id)
+            continue
+        live.register(chat_id, opened.message_id, screen.day)
+        # лимит Telegram — около 30 сообщений в секунду на бота
+        await asyncio.sleep(0.05)
+
+
+async def booked_window(tg_id: int) -> Window | None:
+    async with session_factory() as session:
+        return await repo.active_booking_window(session, tg_id, now())
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
+    live.unregister(message.chat.id)
     await message.answer(greeting(message.from_user.first_name), reply_markup=kb.main_menu())
 
 
 @router.callback_query(kb.Menu.filter(F.action == "main"))
 async def on_main(call: CallbackQuery) -> None:
-    await show(call, greeting(call.from_user.first_name), kb.main_menu())
+    await show_static(call, greeting(call.from_user.first_name), kb.main_menu())
     await call.answer()
 
 
 @router.callback_query(kb.Menu.filter(F.action == "book"))
 async def on_book(call: CallbackQuery) -> None:
-    await show(call, *await days_screen())
+    if window := await booked_window(call.from_user.id):
+        await show_static(call, already_booked_text(window.start_at, window.label), kb.back_to_menu())
+    else:
+        await show_live(call, await days_screen())
     await call.answer()
 
 
 @router.callback_query(kb.PickDay.filter())
 async def on_pick_day(call: CallbackQuery, callback_data: kb.PickDay) -> None:
-    await show(call, *await times_screen(date.fromisoformat(callback_data.day)))
+    await show_live(call, await times_screen(date.fromisoformat(callback_data.day)))
     await call.answer()
 
 
 @router.callback_query(kb.Menu.filter(F.action == "price"))
 async def on_price(call: CallbackQuery) -> None:
+    live.unregister(call.message.chat.id)
     async with session_factory() as session:
         file_id = await repo.get_setting(session, PRICE_KEY)
     await call.message.delete()
@@ -125,17 +198,19 @@ async def on_pick_window(call: CallbackQuery, callback_data: kb.PickWindow, bot:
             booking = await repo.book_window(
                 session, callback_data.id, now(), user.id, user.full_name, user.username
             )
+    except repo.AlreadyBooked as e:
+        await show_static(call, already_booked_text(e.start_at, e.label), kb.back_to_menu())
+        await call.answer()
+        return
     except repo.WindowUnavailable:
-        if day is not None:
-            screen = await times_screen(day, WINDOW_TAKEN_TEXT)
-        else:
-            screen = await days_screen(WINDOW_TAKEN_TEXT)
-        await show(call, *screen)
+        screen = await (times_screen(day, WINDOW_TAKEN_TEXT) if day else days_screen(WINDOW_TAKEN_TEXT))
+        await show_live(call, screen)
         await call.answer()
         return
 
-    await call.message.edit_text(
-        thanks_text(booking.window.start_at, booking.window.label), reply_markup=kb.back_to_menu()
+    await show_static(
+        call, thanks_text(booking.window.start_at, booking.window.label), kb.back_to_menu()
     )
     await call.answer()
     await notify_master_new_booking(bot, booking)
+    await refresh_open_screens(bot, exclude_chat_id=call.message.chat.id)

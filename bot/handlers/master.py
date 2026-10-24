@@ -1,14 +1,14 @@
 from datetime import datetime
 from html import escape
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from bot.config import settings
 from bot.db import repo
 from bot.db.engine import session_factory
-from bot.handlers.client import PRICE_KEY
+from bot.handlers.client import PRICE_KEY, refresh_open_screens
 from bot.services.fmt import window_button
 from bot.services.notify import client_link
 from bot.services.schedule_parser import parse_schedule
@@ -57,7 +57,7 @@ async def cmd_windows(message: Message) -> None:
 
 
 @router.message(Command("delwindow"))
-async def cmd_delwindow(message: Message, command: CommandObject) -> None:
+async def cmd_delwindow(message: Message, command: CommandObject, bot: Bot) -> None:
     if not command.args or not command.args.strip().isdigit():
         await message.answer("Напиши номер окна: /delwindow 12\nНомера — в /windows")
         return
@@ -67,10 +67,11 @@ async def cmd_delwindow(message: Message, command: CommandObject) -> None:
         await message.answer("Такого свободного окна нет. Занятые окна удалить нельзя.")
     else:
         await message.answer(f"🗑 Удалено: {window_button(window.start_at, window.label)}")
+        await refresh_open_screens(bot)
 
 
 @router.message(F.text, ~F.text.startswith("/"))
-async def add_schedule(message: Message) -> None:
+async def add_schedule(message: Message, bot: Bot) -> None:
     result = parse_schedule(message.text, now())
     async with session_factory() as session, session.begin():
         added = await repo.add_windows(session, result.windows)
@@ -87,3 +88,5 @@ async def add_schedule(message: Message) -> None:
     if not lines:
         lines.append("Не нашла в сообщении окон. /help — как прислать расписание")
     await message.answer("\n".join(lines))
+    if added:
+        await refresh_open_screens(bot)
