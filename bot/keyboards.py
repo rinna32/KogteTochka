@@ -33,12 +33,13 @@ class Master(CallbackData, prefix="m"):
     day: str = ""
 
 
-def main_menu(is_staff: bool = False) -> InlineKeyboardMarkup:
+def main_menu(panel: str | None = None) -> InlineKeyboardMarkup:
+    """panel — «мастера» или «админа»: добавляет кнопку перехода в меню управления."""
     kb = InlineKeyboardBuilder()
     kb.button(text="📅 Записаться", callback_data=Menu(action="book"))
     kb.button(text="💰 Прайс", callback_data=Menu(action="price"))
-    if is_staff:
-        kb.button(text="🔙 Меню мастера", callback_data=Master(action="menu"))
+    if panel:
+        kb.button(text=f"⚙️ Меню {panel}", callback_data=Master(action="menu"))
     return kb.adjust(2).as_markup()
 
 

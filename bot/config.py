@@ -31,5 +31,13 @@ class Settings(BaseSettings):
         """Кто может управлять ботом: мастер и админ."""
         return {i for i in (self.master_id, self.admin_id) if i}
 
+    def panel_name(self, user_id: int) -> str | None:
+        """Чьё меню управления видит человек: «мастера», «админа» или никакое."""
+        if self.master_id and user_id == self.master_id:
+            return "мастера"
+        if self.admin_id and user_id == self.admin_id:
+            return "админа"
+        return None
+
 
 settings = Settings()

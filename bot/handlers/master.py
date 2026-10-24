@@ -12,7 +12,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, User
 
 from bot import keyboards as kb
 from bot.config import settings
@@ -33,7 +33,7 @@ router.callback_query.filter(F.from_user.id.in_(settings.staff_ids))
 # ссылки на фоновые рассылки, чтобы их не собрал сборщик мусора
 _background: set[asyncio.Task] = set()
 
-MENU_TEXT = "Привет, {name}! 💅\n\nЭто меню мастера 👇"
+MENU_TEXT = "Привет, {name}! 💅\n\nЭто меню {panel} 👇"
 ADD_TEXT = (
     "➕ <b>Как добавить окна</b>\n\n"
     "Просто пришли сюда расписание одним сообщением, как обычно:\n\n"
@@ -44,6 +44,10 @@ ADD_TEXT = (
 
 class MasterStates(StatesGroup):
     waiting_price = State()
+
+
+def menu_text(user: User) -> str:
+    return MENU_TEXT.format(name=escape(user.first_name), panel=settings.panel_name(user.id))
 
 
 def now() -> datetime:
@@ -66,19 +70,25 @@ def booking_text(booking: Booking) -> str:
 @router.message(Command("help"))
 async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer(MENU_TEXT.format(name=escape(message.from_user.first_name)), reply_markup=kb.master_menu())
+    user = message.from_user
+    panel = settings.panel_name(user.id)
+    if panel == "админа":
+        # админ чаще записывается сама, поэтому сначала — меню записи
+        await message.answer(greeting(user), reply_markup=kb.main_menu(panel))
+    else:
+        await message.answer(menu_text(user), reply_markup=kb.master_menu())
 
 
 @router.callback_query(kb.Master.filter(F.action == "menu"))
 async def on_menu(call: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await show_static(call, MENU_TEXT.format(name=escape(call.from_user.first_name)), kb.master_menu())
+    await show_static(call, menu_text(call.from_user), kb.master_menu())
     await call.answer()
 
 
 @router.callback_query(kb.Master.filter(F.action == "client"))
 async def on_client_view(call: CallbackQuery) -> None:
-    await show_static(call, greeting(call.from_user), kb.main_menu(is_staff=True))
+    await show_static(call, greeting(call.from_user), kb.main_menu(settings.panel_name(call.from_user.id)))
     await call.answer()
 
 
