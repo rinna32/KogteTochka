@@ -7,7 +7,7 @@ from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import settings
-from bot.handlers import client
+from bot.handlers import client, master
 
 
 async def main() -> None:
@@ -17,6 +17,8 @@ async def main() -> None:
     )
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+    # мастер первым: её текст — это расписание; /start и кнопки обрабатывает client
+    dp.include_router(master.router)
     dp.include_router(client.router)
 
     me = await bot.get_me()

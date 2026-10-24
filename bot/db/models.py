@@ -5,10 +5,12 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     SmallInteger,
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -60,32 +62,48 @@ class DayOff(Base):
     day: Mapped[date] = mapped_column(primary_key=True)
 
 
+class Window(Base):
+    """Окно, которое мастер открыла для записи."""
+
+    __tablename__ = "windows"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    start_at: Mapped[datetime] = mapped_column(unique=True)
+    # пометка из расписания мастера: «к», «н», «к/н»
+    label: Mapped[str | None] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
 class Booking(Base):
     __tablename__ = "bookings"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    window_id: Mapped[int] = mapped_column(ForeignKey("windows.id", ondelete="CASCADE"))
     client_tg_id: Mapped[int] = mapped_column(BigInteger, index=True)
     client_name: Mapped[str] = mapped_column(String(100))
-    phone: Mapped[str] = mapped_column(String(32))
-    service_id: Mapped[int] = mapped_column(ForeignKey("services.id"))
-    start_at: Mapped[datetime]
-    end_at: Mapped[datetime]
-    nail_length: Mapped[str] = mapped_column(String(50))
-    nail_shape: Mapped[str] = mapped_column(String(50))
+    client_username: Mapped[str | None] = mapped_column(String(64))
+    phone: Mapped[str | None] = mapped_column(String(32))
+    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id"))
     comment: Mapped[str | None] = mapped_column(Text)
     # active | cancelled
     status: Mapped[str] = mapped_column(String(20), default="active", server_default="active")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
-    service: Mapped[Service] = relationship()
+    window: Mapped[Window] = relationship()
+    service: Mapped[Service | None] = relationship()
     photos: Mapped[list["BookingPhoto"]] = relationship(
         back_populates="booking", cascade="all, delete-orphan"
     )
 
-    # Ограничение no_overlap (EXCLUDE USING gist) добавлено отдельной миграцией
     __table_args__ = (
-        CheckConstraint("end_at > start_at", name="booking_interval"),
         CheckConstraint("status IN ('active', 'cancelled')", name="booking_status"),
+        # Защита от двойной записи: на одно окно — одна активная запись
+        Index(
+            "one_active_booking_per_window",
+            "window_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
     )
 
 
